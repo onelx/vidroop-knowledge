@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vidroop Knowledge Platform
 
-## Getting Started
+Plataforma que crawlea automáticamente Vidroop (academia online SaaS), almacena toda la documentación del producto en una base de datos versionada, y expone una API para que agentes de IA externos consulten información siempre actualizada.
 
-First, run the development server:
+## Arquitectura
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+                          ┌────────────────────┐
+                          │  GitHub Actions     │
+                          │  (cron diario)      │  ──┐
+                          │  Playwright crawler │    │
+                          └─────────┬──────────┘    │
+                                    │ writes        │ artefactos
+                                    ▼                ▼
+                          ┌────────────────────┐  ┌──────────────────┐
+                          │  Supabase Postgres │  │  Supabase Storage │
+                          │  (academias, etc.) │  │  (HTML, PNG, JSON)│
+                          └─────────┬──────────┘  └────────┬─────────┘
+                                    │                       │
+                                    │ read                  │
+                                    ▼                       │
+   API externa     ◀──────  ┌────────────────────┐  ◀──────┘
+   (otros agentes IA)        │  Next.js en Vercel  │
+                             │  • /v1/* (REST API)  │
+                             │  • /admin (UI)       │
+                             └────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Stack
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Capa | Tech | Hosting |
+|---|---|---|
+| Source control | git | GitHub (`onelx/vidroop-knowledge`) |
+| DB | Postgres 17 | Supabase (sa-east-1) |
+| Storage | S3-compat | Supabase Storage |
+| Crawler | Playwright (TS) | GitHub Actions (cron) |
+| API + UI | Next.js 15 | Vercel |
+| Auth UI | Supabase Auth | Supabase |
+| Auth API | API keys (sha256) | tabla `api_keys` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Estructura del repo
 
-## Learn More
+```
+vidroop-knowledge/
+├── src/                       # Next.js app
+│   ├── app/
+│   │   ├── (admin)/           # UI admin
+│   │   └── api/v1/            # REST API
+│   └── lib/
+│       ├── supabase/          # clients
+│       ├── crypto/            # AES-256-GCM
+│       └── auth/              # API key middleware
+├── crawler/                   # Workspace del crawler (corre en GH Actions)
+│   └── src/
+├── .github/workflows/
+│   └── crawl.yml              # cron + workflow_dispatch
+├── supabase/
+│   └── migrations/
+└── docs/                      # docs de la plataforma
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Cómo correr local
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+# 1. Copiar env y completar valores
+cp .env.example .env.local
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# 2. Instalar deps
+npm install
 
-## Deploy on Vercel
+# 3. Aplicar migraciones a Supabase (vía MCP o supabase-cli)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# 4. Levantar dev server
+npm run dev
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Variables de entorno
+
+Ver [`.env.example`](.env.example).
+
+## Endpoints API
+
+Ver [docs/api.md](docs/api.md).
+
+## Disparar un crawl manual
+
+Tres formas:
+1. Desde la UI admin (botón en /admin/academias/{id})
+2. Via API: `POST /v1/academias/{id}/crawls` con `Authorization: Bearer vk_...`
+3. Via GitHub Actions UI: ir a Actions → "Crawl Vidroop" → Run workflow
