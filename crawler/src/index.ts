@@ -237,8 +237,28 @@ async function capturePage(
   const html = await page.content();
   const text = await page.evaluate(() => document.body?.innerText ?? "");
   const screenshotBuf = await page.screenshot({ fullPage: true, type: "png" });
-  // accessibility snapshot (más útil que el HTML crudo para análisis)
-  const domSnapshot = await page.accessibility.snapshot({ interestingOnly: false });
+  // Snapshot custom del DOM: títulos, links, inputs, buttons — más útil que HTML crudo
+  const domSnapshot = await page.evaluate(() => {
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      text: (el.textContent ?? "").trim().slice(0, 200),
+    }));
+    const links = Array.from(document.querySelectorAll("a[href]")).map((el) => ({
+      text: (el.textContent ?? "").trim().slice(0, 100),
+      href: (el as HTMLAnchorElement).getAttribute("href") ?? "",
+    }));
+    const inputs = Array.from(document.querySelectorAll("input, textarea, select")).map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      type: (el as HTMLInputElement).type ?? null,
+      name: (el as HTMLInputElement).name ?? null,
+      placeholder: (el as HTMLInputElement).placeholder ?? null,
+    }));
+    const buttons = Array.from(document.querySelectorAll("button")).map((el) => ({
+      text: (el.textContent ?? "").trim().slice(0, 80),
+      type: (el as HTMLButtonElement).type ?? null,
+    }));
+    return { headings, links, inputs, buttons };
+  });
   const domJson = JSON.stringify(domSnapshot, null, 2);
 
   const linksCount = await page.locator("a").count();

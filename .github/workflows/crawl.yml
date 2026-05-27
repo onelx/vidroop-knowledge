@@ -40,6 +40,10 @@ jobs:
         working-directory: crawler
         run: npx playwright install --with-deps chromium
 
+      - name: Compile crawler TS → JS
+        working-directory: crawler
+        run: npm run build
+
       # Determinar academia_id y crawl_id según el tipo de evento
       - name: Resolver inputs
         id: inputs
@@ -88,7 +92,7 @@ jobs:
               console.log(data.id);
             ")
             echo "Crawling academia=$ACADEMIA crawl=$CRAWL_ID"
-            ACADEMIA_ID="$ACADEMIA" CRAWL_ID="$CRAWL_ID" npx tsx src/index.ts || echo "academia $ACADEMIA falló, sigo"
+            ACADEMIA_ID="$ACADEMIA" CRAWL_ID="$CRAWL_ID" node dist/index.js || echo "academia $ACADEMIA falló, sigo"
           done
 
       # Si es dispatch (api o manual): un solo crawl
@@ -117,4 +121,4 @@ jobs:
             echo "Falta academia_id o crawl_id"
             exit 1
           fi
-          npx tsx src/index.ts
+          node dist/index.js
