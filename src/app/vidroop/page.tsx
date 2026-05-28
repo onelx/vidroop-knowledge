@@ -80,9 +80,10 @@ export default async function VidroopIndex() {
         </div>
 
         <div className="mt-10 rounded-lg border border-zinc-800 bg-zinc-900/30 p-5 text-sm text-zinc-400">
-          ¿Querés preguntar en lenguaje natural? El{" "}
-          <span className="text-zinc-300">copiloto de Vidroop</span> está en camino
-          <span className="ml-2 rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">pronto</span>
+          ¿Querés preguntar en lenguaje natural?{" "}
+          <Link href="/copiloto" className="text-emerald-400 underline hover:text-emerald-300">
+            Probá el copiloto de Vidroop →
+          </Link>
         </div>
       </main>
     </div>

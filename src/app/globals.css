@@ -93,3 +93,18 @@ body {
 }
 .md-body th { background: #18181b; color: #e4e4e7; font-weight: 600; }
 .md-body hr { border: none; border-top: 1px solid #27272a; margin: 2rem 0; }
+
+/* Variante compacta para las burbujas del copiloto */
+.md-chat { color: #e4e4e7; line-height: 1.6; }
+.md-chat > :first-child { margin-top: 0; }
+.md-chat > :last-child { margin-bottom: 0; }
+.md-chat h1, .md-chat h2, .md-chat h3, .md-chat h4 {
+  font-size: 0.95rem;
+  margin: 0.75rem 0 0.35rem;
+  padding-top: 0;
+  border-top: none;
+}
+.md-chat p { margin: 0.4rem 0; }
+.md-chat ul, .md-chat ol { margin: 0.4rem 0; padding-left: 1.25rem; }
+.md-chat li { margin: 0.15rem 0; }
+.md-chat pre { margin: 0.5rem 0; }

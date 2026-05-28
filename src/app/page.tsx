@@ -74,9 +74,10 @@ export default async function Home() {
             primary
           />
           <Card
+            href="/copiloto"
             title="Copiloto IA"
             desc="Preguntá en lenguaje natural sobre cómo funciona Vidroop. Responde tomando todo el conocimiento de la base."
-            badge="pronto"
+            cta="Abrir chat →"
           />
           <Card
             href="/admin"
