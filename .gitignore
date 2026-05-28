@@ -47,3 +47,4 @@ next-env.d.ts
 
 # swc cache
 .swc/
+.secrets.local.txt
