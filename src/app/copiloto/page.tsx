@@ -68,10 +68,7 @@ export default function CopilotoPage() {
       <header className="border-b border-zinc-800 px-6 py-4">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <div>
-            <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-100">
-              ← inicio
-            </Link>
-            <h1 className="mt-1 text-xl font-bold">Copiloto de Vidroop</h1>
+            <h1 className="text-xl font-bold">Copiloto de Vidroop</h1>
           </div>
           {messages.length > 0 && (
             <button

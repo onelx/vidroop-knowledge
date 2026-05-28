@@ -65,8 +65,8 @@ export default function AgenteNormalizadorPage() {
       <header className="border-b border-zinc-800 px-6 py-4">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">Normalizador — Agente de contenido</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">Herramienta interna · Vidroop Knowledge</p>
+            <h1 className="text-xl font-bold">Normalizador</h1>
+            <p className="mt-0.5 text-xs text-zinc-500">Generá artículos para el help desk de Vidroop</p>
           </div>
           {messages.length > 0 && (
             <button
