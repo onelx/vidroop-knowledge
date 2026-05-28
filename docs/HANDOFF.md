@@ -1,7 +1,7 @@
 # HANDOFF — Vidroop Knowledge Platform
 
 > Documento para abrir y continuar el proyecto en una sesión nueva.
-> Última sesión: **2026-05-27**. Estado: **MVP funcionando end-to-end en producción.**
+> Última sesión: **2026-05-28**. Estado: **MVP end-to-end en prod + MCP server (Etapa A) hecho y probado local.**
 
 ---
 
@@ -73,6 +73,7 @@ Datos clave de Vidroop extraídos en la auditoría:
 | Deploy Vercel | ✅ | producción, deployment protection OFF (API pública) |
 | Repo GitHub | ✅ | público |
 | **Test e2e** | ✅ | **23/24 páginas crawleadas, artefactos en Storage, API sirve todo** |
+| **MCP server (Etapa A)** | ✅ | **`POST /api/mcp`, Streamable HTTP stateless, 6 tools + resources, auth API key. Probado local, falta deploy** |
 
 **El flujo completo está probado y funciona**: API dispara crawl → GitHub Actions corre Playwright → login Vidroop → recorre 24 rutas → sube HTML/PNG/DOM a Storage → inserta en BD → API sirve los artefactos con auth.
 
@@ -145,24 +146,31 @@ vidroop-knowledge/
 │   ├── app/
 │   │   ├── page.tsx                    (home pública)
 │   │   ├── admin/page.tsx              (panel admin — SIN auth todavía ⚠️)
-│   │   └── api/v1/
-│   │       ├── health/route.ts
-│   │       ├── academias/route.ts             (GET list, POST create)
-│   │       ├── academias/[id]/route.ts        (GET detail)
-│   │       ├── academias/[id]/credenciales/route.ts
-│   │       ├── academias/[id]/crawls/route.ts (GET list, POST trigger)
-│   │       ├── academias/[id]/rutas/route.ts
-│   │       ├── crawls/[id]/route.ts
-│   │       ├── crawls/[id]/paginas/route.ts
-│   │       ├── paginas/route.ts               (search cross-crawl)
-│   │       ├── paginas/[id]/route.ts
-│   │       └── paginas/[id]/[artifact]/route.ts (html|screenshot|dom-tree|text)
+│   │   └── api/
+│   │       ├── mcp/route.ts             (MCP server: POST=JSON-RPC, GET=405, OPTIONS=CORS)
+│   │       └── v1/
+│   │           ├── health/route.ts
+│   │           ├── academias/route.ts             (GET list, POST create)
+│   │           ├── academias/[id]/route.ts        (GET detail)
+│   │           ├── academias/[id]/credenciales/route.ts
+│   │           ├── academias/[id]/crawls/route.ts (GET list, POST trigger)
+│   │           ├── academias/[id]/rutas/route.ts
+│   │           ├── crawls/[id]/route.ts
+│   │           ├── crawls/[id]/paginas/route.ts
+│   │           ├── paginas/route.ts               (search cross-crawl)
+│   │           ├── paginas/[id]/route.ts
+│   │           └── paginas/[id]/[artifact]/route.ts (html|screenshot|dom-tree|text)
 │   └── lib/
 │       ├── supabase/{admin,server,client,types}.ts
 │       ├── crypto/index.ts             (AES-256-GCM)
 │       ├── auth/api-key.ts             (validación + generateApiKey)
 │       ├── api/utils.ts                (json, jsonError, cursor pagination)
 │       ├── github/dispatch.ts          (triggerCrawlWorkflow)
+│       ├── mcp/                         (MCP server — Etapa A)
+│       │   ├── server.ts               (dispatcher JSON-RPC: initialize/ping/tools/resources)
+│       │   ├── tools.ts                (6 tools + scope por tool)
+│       │   ├── resources.ts            (artefactos vidroop://pagina/{id}/...)
+│       │   └── errors.ts               (McpError con código JSON-RPC)
 │       └── vidroop/routes.ts           (38 rutas conocidas)
 ├── crawler/                            (workspace separado, corre en CI)
 │   ├── package.json
@@ -286,12 +294,26 @@ console.log(plain); // se muestra UNA vez
 
 Orden sugerido por valor/dependencia. Cada ítem es un "entregable" cerrable.
 
-### Etapa A — MCP Server (alta prioridad) 🎯
-El objetivo del proyecto es que **agentes IA** consuman esto. La forma más limpia es un **MCP server** (Model Context Protocol) además del REST.
-- Crear `src/app/api/mcp/route.ts` (o un server MCP separado) que exponga como **tools**: `search_paginas`, `get_pagina`, `list_rutas`, `get_crawl_status`, `trigger_crawl`.
-- Exponer como **resources** los artefactos (html/screenshot/text).
-- Auth con las mismas API keys.
-- Probar conectándolo a un cliente MCP (Claude Desktop / un agente).
+### Etapa A — MCP Server ✅ HECHO (2026-05-28)
+Server MCP en `POST /api/mcp` (Streamable HTTP, **stateless**, JSON-RPC 2.0, sin deps nuevas — hand-rolled para no arrastrar `mcp-handler`+redis y respetar el estilo Web `Response`/`requireApiKey` del repo).
+- **Tools** (cada una valida su scope de API key, igual que la REST):
+  - `list_academias` (`read:academias`) — punto de entrada, da los `academia_id`.
+  - `search_paginas` (`read:paginas`) — busca por texto (path/título), academia y/o path.
+  - `get_pagina` (`read:paginas`) — metadatos + URIs de recursos (no incluye el texto crudo).
+  - `list_rutas` (`read:routes`) — mapa de rutas de una academia.
+  - `get_crawl_status` (`read:crawls`) — por `crawl_id` o último de una `academia_id`.
+  - `trigger_crawl` (`trigger:crawl`) — encola crawl vía GitHub Actions.
+- **Resources** (templates): `vidroop://pagina/{id}/{text|html|dom-tree|screenshot}`. text→DB, resto→Storage; screenshot como blob base64.
+- Auth: `Authorization: Bearer vk_...` (mismas keys). `initialize`/`tools-list` solo requieren key válida; `tools/call` y `resources/read` chequean scope.
+- Probado local (initialize, tools/list, tools/call de las 6, resources/read text+screenshot, 401, batch, 405 GET, 204 OPTIONS, errores -32601/-32602).
+- **PENDIENTE**: `git push` a main → auto-deploy Vercel; luego conectar un cliente MCP real (Claude Desktop / agente) apuntando a `https://vidroop-knowledge.vercel.app/api/mcp` con header `Authorization: Bearer vk_...`.
+
+Probar el MCP local:
+```bash
+curl -s -X POST http://localhost:3000/api/mcp \
+  -H "Authorization: Bearer $VK_KEY" -H "content-type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
 
 ### Etapa B — LLM Normalizer
 Hoy guardamos HTML+screenshot+DOM crudos. Falta convertirlos en **docs estructurados tipo `notes/02-area-academia.md`**.
@@ -330,8 +352,8 @@ Hoy guardamos HTML+screenshot+DOM crudos. Falta convertirlos en **docs estructur
 3. Verificá que sigue vivo:
    curl https://vidroop-knowledge.vercel.app/api/v1/health
 4. Recuperá la API key de .secrets.local.txt
-5. Elegí etapa de la sección 12 (recomendado: A — MCP server).
+5. Elegí etapa de la sección 12 (A ya está hecha; recomendado seguir con B — LLM Normalizer).
 6. cd vidroop-knowledge && npm install && npm run dev
 ```
 
-**Contexto de una línea**: plataforma que crawlea Vidroop a una BD y la expone por API para agentes IA; MVP en prod (Vercel+Supabase+GH Actions); próxima etapa = MCP server + LLM normalizer.
+**Contexto de una línea**: plataforma que crawlea Vidroop a una BD y la expone por REST + MCP para agentes IA; MVP en prod (Vercel+Supabase+GH Actions); Etapa A (MCP) hecha, falta deploy; próxima etapa = LLM normalizer.
