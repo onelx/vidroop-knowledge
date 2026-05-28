@@ -1,7 +1,7 @@
 # HANDOFF — Vidroop Knowledge Platform
 
 > Documento para abrir y continuar el proyecto en una sesión nueva.
-> Última sesión: **2026-05-28**. Estado: **MVP end-to-end en prod + MCP server (Etapa A) hecho y probado local.**
+> Última sesión: **2026-05-28**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA, todo deployado.**
 
 ---
 
@@ -73,7 +73,9 @@ Datos clave de Vidroop extraídos en la auditoría:
 | Deploy Vercel | ✅ | producción, deployment protection OFF (API pública) |
 | Repo GitHub | ✅ | público |
 | **Test e2e** | ✅ | **23/24 páginas crawleadas, artefactos en Storage, API sirve todo** |
-| **MCP server (Etapa A)** | ✅ | **`POST /api/mcp`, Streamable HTTP stateless, 6 tools + resources, auth API key. Probado local, falta deploy** |
+| **MCP server (Etapa A)** | ✅ | **`POST /api/mcp`, Streamable HTTP stateless, 6 tools + resources, auth API key. En prod** |
+| **UI pública** | ✅ | **Home/menú (`/`), explicación de Vidroop (`/vidroop`, `/vidroop/[slug]`) desde notes bundleadas. En prod** |
+| **Copiloto IA** | ✅ | **`/copiloto` + `POST /api/copiloto`: Haiku 4.5 con la KB en system prompt cacheado, rate-limit por IP, markdown sanitizado. En prod** |
 
 **El flujo completo está probado y funciona**: API dispara crawl → GitHub Actions corre Playwright → login Vidroop → recorre 24 rutas → sube HTML/PNG/DOM a Storage → inserta en BD → API sirve los artefactos con auth.
 
@@ -96,7 +98,7 @@ Datos clave de Vidroop extraídos en la auditoría:
 - **Project**: `vidroop-knowledge` (`prj_AMG8U7cEpNCaO2du9rI6K8f1vxrG`)
 - **URL producción**: https://vidroop-knowledge.vercel.app
 - **Deployment protection**: DESACTIVADA (API consumible por agentes externos)
-- **Env vars seteadas** (production): NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY, CREDENTIAL_ENCRYPTION_KEY, GITHUB_REPO_OWNER, GITHUB_REPO_NAME, GITHUB_DISPATCH_TOKEN
+- **Env vars seteadas** (production): NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY, CREDENTIAL_ENCRYPTION_KEY, GITHUB_REPO_OWNER, GITHUB_REPO_NAME, GITHUB_DISPATCH_TOKEN, **ANTHROPIC_API_KEY** (copiloto; también en `.env.local`)
 
 ### GitHub
 - **Repo**: https://github.com/onelx/vidroop-knowledge (público)
@@ -287,6 +289,8 @@ console.log(plain); // se muestra UNA vez
 5. **El cron procesa TODAS las academias activas** en serie (loop bash en el workflow). Con muchas academias esto puede pasar el timeout de 30min del job. Habría que paralelizar o usar matrix.
 6. **3 secrets duplicados** entre Vercel y GitHub (service_role, enc key). Si rotás uno, rotar en ambos lados.
 7. **Costo Supabase**: el proyecto suma **$10/mes** a la org (es Pro).
+8. **Explicación/copiloto salen de notes BUNDLEADAS, no de la DB.** `notes/00-10` se empaquetan en `src/content/vidroop/data.ts` vía `scripts/gen-vidroop-content.mjs` (re-correr si cambian las notes). Se eligió así porque **no se pudo aplicar DDL**: el MCP de Supabase estuvo caído (`net::ERR_FAILED`, sin egress) y no había connection string ni DB password a mano. La migración `00002_documentos.sql` + `scripts/seed-documentos.mjs` quedaron listas para cuando se destrabe (MCP o credencial) — las necesita el **normalizer (Etapa B)** para escribir docs generados. PostgREST con service_role SÍ funciona desde afuera (lectura/escritura de datos), solo el DDL está bloqueado.
+9. **Copiloto = costo por consulta.** Público con rate-limit best-effort por IP (in-memory, no global en serverless) + `max_tokens` 2048 + historial acotado. La KB (~32k tok) va cacheada (prompt caching, TTL 5min) → barata en consultas repetidas. Si rotás `ANTHROPIC_API_KEY`, actualizá Vercel + `.env.local`.
 
 ---
 
