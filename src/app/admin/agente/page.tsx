@@ -10,11 +10,17 @@ function renderMd(md: string): string {
   return DOMPurify.sanitize(marked.parse(md, { async: false, gfm: true }));
 }
 
+/** Detecta si una respuesta del agente contiene un borrador de artículo (tiene un # heading). */
+function isDraft(content: string): boolean {
+  return /^#{1,3} .+/m.test(content);
+}
+
 export default function AgenteNormalizadorPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedIdx, setSavedIdx] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,6 +54,12 @@ export default function AgenteNormalizadorPage() {
     }
   }
 
+  // Índice global del último mensaje asistente que tiene un borrador
+  const lastDraftIdx = messages.reduce<number | null>(
+    (acc, m, i) => (m.role === "assistant" && isDraft(m.content) ? i : acc),
+    null,
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 text-zinc-100 font-sans">
       <header className="border-b border-zinc-800 px-6 py-4">
@@ -58,10 +70,7 @@ export default function AgenteNormalizadorPage() {
           </div>
           {messages.length > 0 && (
             <button
-              onClick={() => {
-                setMessages([]);
-                setError(null);
-              }}
+              onClick={() => { setMessages([]); setError(null); setSavedIdx(null); }}
               className="text-sm text-zinc-400 hover:text-zinc-100"
             >
               limpiar
@@ -74,26 +83,51 @@ export default function AgenteNormalizadorPage() {
         {messages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <p className="max-w-md text-zinc-400">
-              Describí el artículo que querés generar: tema, tono (formal/simple/técnico) y audiencia.
-              El agente buscará en la base de conocimiento antes de redactar.
+              Describí el artículo que querés generar: tema, tono (formal / simple / técnico) y audiencia.
+              El agente busca en la base de conocimiento antes de redactar.
+            </p>
+            <p className="mt-3 max-w-md text-xs text-zinc-600">
+              Cuando el agente muestre el borrador, aparece el botón <strong className="text-zinc-400">💾 Guardar artículo</strong> para publicarlo en el help desk.
             </p>
           </div>
         ) : (
           <div className="flex-1 space-y-4">
             {messages.map((m, i) => (
-              <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                {m.role === "user" ? (
-                  <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-emerald-700/80 px-4 py-2.5 text-sm leading-relaxed text-emerald-50">
-                    {m.content}
+              <div key={i}>
+                <div className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                  {m.role === "user" ? (
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-emerald-700/80 px-4 py-2.5 text-sm leading-relaxed text-emerald-50">
+                      {m.content}
+                    </div>
+                  ) : (
+                    <div
+                      className="md-body md-chat max-w-[85%] rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-2.5 text-sm"
+                      dangerouslySetInnerHTML={{ __html: renderMd(m.content) }}
+                    />
+                  )}
+                </div>
+
+                {/* Botón guardar: solo en el último borrador del agente */}
+                {m.role === "assistant" && isDraft(m.content) && i === lastDraftIdx && (
+                  <div className="mt-2 flex justify-start pl-1">
+                    {savedIdx === i ? (
+                      <span className="flex items-center gap-1.5 rounded-lg border border-emerald-700/50 bg-emerald-950/40 px-4 py-2 text-sm text-emerald-400">
+                        ✅ Artículo guardado en el help desk
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => { setSavedIdx(i); send("guardalo en la base de datos"); }}
+                        disabled={loading}
+                        className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-300 transition hover:border-emerald-600/60 hover:text-emerald-300 disabled:opacity-40"
+                      >
+                        💾 Guardar artículo en el help desk
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  <div
-                    className="md-body md-chat max-w-[85%] rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-2.5 text-sm"
-                    dangerouslySetInnerHTML={{ __html: renderMd(m.content) }}
-                  />
                 )}
               </div>
             ))}
+
             {loading && (
               <div className="flex justify-start">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-2.5 text-sm text-zinc-500">
@@ -112,10 +146,7 @@ export default function AgenteNormalizadorPage() {
         )}
 
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            send(input);
-          }}
+          onSubmit={(e) => { e.preventDefault(); send(input); }}
           className="mt-4 flex gap-2"
         >
           <input
@@ -133,6 +164,10 @@ export default function AgenteNormalizadorPage() {
             Enviar
           </button>
         </form>
+
+        <p className="mt-2 text-center text-xs text-zinc-600">
+          Podés pedir cambios antes de guardar. Una vez guardado, el artículo aparece en el help desk.
+        </p>
       </main>
     </div>
   );
