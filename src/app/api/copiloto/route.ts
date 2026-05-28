@@ -8,10 +8,12 @@
  * (cache_control ephemeral). Público con rate-limit por IP + topes de costo.
  */
 
+import { createHash } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { json, jsonError } from "@/lib/api/utils";
 import { buildSystemPrompt } from "@/lib/copiloto/system-prompt";
 import { checkRateLimit } from "@/lib/copiloto/rate-limit";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,11 +30,20 @@ function clientIp(request: Request): string {
   return fwd?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
 }
 
-function parseMessages(body: unknown): ChatMsg[] | null {
+function hashIp(ip: string): string {
+  return createHash("sha256").update(ip).digest("hex").slice(0, 16);
+}
+
+type ParsedBody = { messages: ChatMsg[]; sessionId: string | null };
+
+function parseBody(body: unknown): ParsedBody | null {
   if (!body || typeof body !== "object" || !Array.isArray((body as { messages?: unknown }).messages)) {
     return null;
   }
-  const raw = (body as { messages: unknown[] }).messages;
+  const b = body as { messages: unknown[]; sessionId?: unknown };
+  const sessionId = typeof b.sessionId === "string" && b.sessionId.length > 0 ? b.sessionId : null;
+
+  const raw = b.messages;
   const msgs: ChatMsg[] = [];
   for (const m of raw) {
     if (!m || typeof m !== "object") return null;
@@ -45,7 +56,27 @@ function parseMessages(body: unknown): ChatMsg[] | null {
   // Quedarnos con los últimos N y arrancar siempre en un turno 'user'.
   let trimmed = msgs.slice(-MAX_HISTORY);
   while (trimmed.length && trimmed[0].role !== "user") trimmed = trimmed.slice(1);
-  return trimmed.length ? trimmed : null;
+  if (!trimmed.length) return null;
+  return { messages: trimmed, sessionId };
+}
+
+async function persistConversation(
+  sessionId: string,
+  messages: ChatMsg[],
+  reply: string,
+  ipHash: string,
+): Promise<void> {
+  try {
+    const supa = supabaseAdmin();
+    const full = [...messages, { role: "assistant" as const, content: reply }];
+    const { error } = await supa.from("conversaciones").upsert(
+      { session_id: sessionId, messages: full, ip_hash: ipHash, updated_at: new Date().toISOString() },
+      { onConflict: "session_id" },
+    );
+    if (error) console.warn("[copiloto] persist error:", error.message);
+  } catch (e) {
+    console.warn("[copiloto] persist failed:", e instanceof Error ? e.message : e);
+  }
 }
 
 export async function POST(request: Request) {
@@ -54,7 +85,10 @@ export async function POST(request: Request) {
     return jsonError(503, "not_configured", "El copiloto todavía no está configurado (falta ANTHROPIC_API_KEY).");
   }
 
-  const rl = checkRateLimit(clientIp(request));
+  const ip = clientIp(request);
+  const ipHash = hashIp(ip);
+
+  const rl = checkRateLimit(ip);
   if (!rl.ok) {
     return new Response(
       JSON.stringify({ error: { code: "rate_limited", message: "Demasiadas consultas. Probá en unos minutos." } }),
@@ -69,10 +103,11 @@ export async function POST(request: Request) {
     return jsonError(400, "invalid_json", "Body no es JSON válido");
   }
 
-  const messages = parseMessages(body);
-  if (!messages) {
+  const parsed = parseBody(body);
+  if (!parsed) {
     return jsonError(400, "invalid_messages", "Mandá 'messages': [{role, content}] con al menos un turno de usuario.");
   }
+  const { messages, sessionId } = parsed;
 
   const client = new Anthropic({ apiKey });
 
@@ -99,6 +134,10 @@ export async function POST(request: Request) {
     console.log(
       `[copiloto] in=${message.usage.input_tokens} cache_read=${message.usage.cache_read_input_tokens ?? 0} cache_write=${message.usage.cache_creation_input_tokens ?? 0} out=${message.usage.output_tokens}`,
     );
+
+    if (sessionId) {
+      await persistConversation(sessionId, messages, reply || "(sin respuesta)", ipHash);
+    }
 
     return json({ reply: reply || "(sin respuesta)" });
   } catch (e) {

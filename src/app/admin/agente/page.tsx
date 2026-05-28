@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 
@@ -12,25 +10,12 @@ function renderMd(md: string): string {
   return DOMPurify.sanitize(marked.parse(md, { async: false, gfm: true }));
 }
 
-const SUGERENCIAS = [
-  "¿Cómo creo un producto en Vidroop?",
-  "¿Qué medios de pago se integran?",
-  "¿Cómo funciona el área de Gestión?",
-  "¿Qué bugs conocidos tiene la plataforma?",
-];
-
-export default function CopilotoPage() {
+export default function AgenteNormalizadorPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-
-  // Generate sessionId client-side only (avoids SSR mismatch).
-  useEffect(() => {
-    setSessionId(crypto.randomUUID());
-  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,10 +30,10 @@ export default function CopilotoPage() {
     setInput("");
     setLoading(true);
     try {
-      const res = await fetch("/api/copiloto", {
+      const res = await fetch("/api/admin/agente", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: next, sessionId }),
+        body: JSON.stringify({ messages: next }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -57,7 +42,7 @@ export default function CopilotoPage() {
         setMessages([...next, { role: "assistant", content: data.reply }]);
       }
     } catch {
-      setError("No pude conectar con el copiloto.");
+      setError("No pude conectar con el agente.");
     } finally {
       setLoading(false);
     }
@@ -68,17 +53,14 @@ export default function CopilotoPage() {
       <header className="border-b border-zinc-800 px-6 py-4">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <div>
-            <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-100">
-              ← inicio
-            </Link>
-            <h1 className="mt-1 text-xl font-bold">Copiloto de Vidroop</h1>
+            <h1 className="text-xl font-bold">Normalizador — Agente de contenido</h1>
+            <p className="mt-0.5 text-xs text-zinc-500">Herramienta interna · Vidroop Knowledge</p>
           </div>
           {messages.length > 0 && (
             <button
               onClick={() => {
                 setMessages([]);
                 setError(null);
-                setSessionId(crypto.randomUUID());
               }}
               className="text-sm text-zinc-400 hover:text-zinc-100"
             >
@@ -92,20 +74,9 @@ export default function CopilotoPage() {
         {messages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <p className="max-w-md text-zinc-400">
-              Preguntá lo que quieras sobre cómo funciona Vidroop. Respondo usando toda la base de
-              conocimiento de la plataforma.
+              Describí el artículo que querés generar: tema, tono (formal/simple/técnico) y audiencia.
+              El agente buscará en la base de conocimiento antes de redactar.
             </p>
-            <div className="mt-6 grid w-full max-w-md gap-2">
-              {SUGERENCIAS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => send(s)}
-                  className="rounded-lg border border-zinc-800 px-4 py-2 text-left text-sm text-zinc-300 hover:border-emerald-600/60 hover:bg-zinc-900/40"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           <div className="flex-1 space-y-4">
@@ -126,7 +97,7 @@ export default function CopilotoPage() {
             {loading && (
               <div className="flex justify-start">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 px-4 py-2.5 text-sm text-zinc-500">
-                  pensando…
+                  procesando…
                 </div>
               </div>
             )}
@@ -150,7 +121,7 @@ export default function CopilotoPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Escribí tu pregunta sobre Vidroop…"
+            placeholder="Ej: Creá un artículo sobre cómo crear un producto, tono simple, para usuarios finales"
             className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-emerald-600/60"
             disabled={loading}
           />
@@ -162,13 +133,6 @@ export default function CopilotoPage() {
             Enviar
           </button>
         </form>
-        <p className="mt-2 text-center text-xs text-zinc-600">
-          Puede equivocarse. Verificá lo importante en la sección{" "}
-          <Link href="/vidroop" className="underline hover:text-zinc-400">
-            Cómo funciona Vidroop
-          </Link>
-          .
-        </p>
       </main>
     </div>
   );

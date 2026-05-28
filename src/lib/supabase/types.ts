@@ -297,6 +297,92 @@ export type Database = {
           },
         ];
       };
+      documentos: {
+        Row: {
+          id: string;
+          academia_id: string;
+          source: "notes" | "normalizer";
+          slug: string;
+          titulo: string;
+          area: string | null;
+          source_path: string | null;
+          pagina_id: string | null;
+          crawl_id: string | null;
+          content_md: string;
+          orden: number;
+          tokens: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          academia_id: string;
+          source?: "notes" | "normalizer";
+          slug: string;
+          titulo: string;
+          area?: string | null;
+          source_path?: string | null;
+          pagina_id?: string | null;
+          crawl_id?: string | null;
+          content_md: string;
+          orden?: number;
+          tokens?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          academia_id?: string;
+          source?: "notes" | "normalizer";
+          slug?: string;
+          titulo?: string;
+          area?: string | null;
+          source_path?: string | null;
+          pagina_id?: string | null;
+          crawl_id?: string | null;
+          content_md?: string;
+          orden?: number;
+          tokens?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "documentos_academia_id_fkey";
+            columns: ["academia_id"];
+            isOneToOne: false;
+            referencedRelation: "academias";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      conversaciones: {
+        Row: {
+          id: string;
+          session_id: string;
+          messages: Json;
+          ip_hash: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          messages?: Json;
+          ip_hash?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          messages?: Json;
+          ip_hash?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       rutas: {
         Row: {
           academia_id: string;
