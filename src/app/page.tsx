@@ -91,6 +91,13 @@ export default async function Home() {
             desc="REST en /api/v1 y un MCP server en /api/mcp. Auth con Bearer vk_…. Pensado para que otros agentes consuman el conocimiento."
             cta="Ver endpoints →"
           />
+          <Card
+            href="/admin/agente"
+            title="Normalizador de contenido"
+            desc="Generá artículos para el help desk público de Vidroop a partir de la base de conocimiento. El agente redacta, vos aprobás."
+            cta="Abrir normalizador →"
+            badge="Admin"
+          />
         </section>
 
         <footer className="mt-12 text-sm text-zinc-600">
