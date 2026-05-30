@@ -244,7 +244,8 @@ echo "valor" | vercel env add NOMBRE production --force
 | Supabase publishable key | `.env.local` (no es secreto, va al cliente) |
 | Supabase service_role | `.env.local` + Vercel env + GitHub secret. Recuperable del dashboard Supabase → Settings → API keys |
 | Encryption key (AES) | `.env.local` + `/tmp/vidroop-knowledge-enc-key.txt` + Vercel env + GitHub secret. **Si se pierde, las credenciales cifradas en BD son irrecuperables** |
-| GitHub dispatch token | `.env.local` + Vercel env. Es `gh auth token` |
+| GitHub dispatch token | `.env.local` + Vercel env. Es `gh auth token` (scopes `repo`+`workflow`: alcanza para dispatch y para cancelar corridas) |
+| Admin Basic Auth (`ADMIN_USER`/`ADMIN_PASSWORD`) | `.env.local` (gitignored) + Vercel env. Protege `/admin` y `/api/admin/*`. **No está en este doc porque el repo es público.** Si se pierde, generar uno nuevo y `vercel env add ADMIN_PASSWORD production --force` |
 
 **Para crear una nueva API key** (script ad-hoc):
 ```js
@@ -300,6 +301,28 @@ console.log(plain); // se muestra UNA vez
 
 ## 12. PRÓXIMA SESIÓN — plan detallado
 
+### Lo que se hizo en la sesión 2026-05-30 (todo en prod + verificado)
+1. **`/admin` protegido** con Basic Auth (`src/proxy.ts`, fail-closed). Cerró el agujero de `/api/admin/agente` (gastaba la API key de Anthropic sin auth).
+2. **Detección de cambios** en el crawler (migración `00004`): recorre todo pero solo sube artefactos si el contenido cambió (hash sha256); las rutas iguales guardan fila liviana reusando artefactos. Contadores `pages_changed`/`pages_unchanged`.
+3. **Sin cron**: se sacó el cron diario. El crawl se dispara con el botón **"Crawlear ahora"** en `/admin` (`POST /api/admin/crawl`).
+4. **Botón "Detener"** (migración `00005`): cancela un crawl en curso — marca `cancelled` en BD (el crawler aborta cooperativamente entre páginas) + cancela la corrida de GH Actions (`crawls.gh_run_id`).
+5. **Storefront público**: el crawler suma `tienda.vidroop.com/academia/{slug}` (path `/tienda`). pages_total = 25.
+
+### Próximos pasos recomendados (en orden)
+- **(a) Auto-descubrir cursos/productos** → destraba la sección de **alumnos** y todo lo dinámico. El crawler debería leer `/formaciones` y `/productos`, sacar los UUIDs de los links capturados, y crawlear sus sub-páginas (`/curso/{id}/{tarjeta,contenidos,activacion,alumnos/alumnos,alumnos/invitaciones,alumnos/estadisticas,mensajes}` y las 9 de `/producto/{id}/...`). **Bloqueante actual: la academia tiene 0 cursos/productos** — hay que crear al menos uno en Vidroop para tener qué descubrir y verificar.
+- **(b) Endurecer el crawler contra timeouts** → `/actualizar-licencia` siempre falla (redirect) y a veces alguna ruta da timeout transitorio de `networkidle`. Opciones: reintento por ruta, `domcontentloaded` en vez de `networkidle`, o manejar redirects.
+- **(c) Etapa B — LLM Normalizer a DB** → mover el contenido del Copiloto de las notes bundleadas (`src/content/vidroop/data.ts`) a la tabla `documentos` (migraciones `00002`/`00003` ya aplicadas).
+- Más adelante: Etapa F (explorer agent para modales/forms), vista del rol **Alumno**, Etapas C/D/E del plan de abajo.
+
+### Cómo retomar rápido
+1. Leé este HANDOFF entero (sección 3 = estado, sección 8 = secretos, sección 11 = deuda).
+2. Verificá que vive: `curl https://vidroop-knowledge.vercel.app/api/v1/health`.
+3. Panel admin: `https://vidroop-knowledge.vercel.app/admin` (Basic Auth, password en `.env.local`).
+4. Elegí (a), (b) o (c) de arriba.
+
+---
+
+### Plan original por etapas (referencia)
 Orden sugerido por valor/dependencia. Cada ítem es un "entregable" cerrable.
 
 ### Etapa A — MCP Server ✅ HECHO (2026-05-28)
