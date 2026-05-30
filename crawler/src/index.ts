@@ -22,9 +22,12 @@ import crypto from "node:crypto";
 import { chromium, type Browser, type Page } from "playwright";
 import { supabaseAdmin } from "./supabase.js";
 import { decryptCredential } from "./crypto.js";
-import { STATIC_ROUTES } from "./routes.js";
+import { STATIC_ROUTES, CURSO_SUBJECTS, PRODUCTO_SUBJECTS, MAPA_SUBJECTS } from "./routes.js";
 
 type RouteInfo = { path: string; name: string; isDynamic: boolean };
+type Target = { path: string; name: string; url: string };
+
+const UUID_RE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
 const CRAWL_ID = mustEnv("CRAWL_ID");
 const ACADEMIA_ID = mustEnv("ACADEMIA_ID");
@@ -145,7 +148,7 @@ async function main(): Promise<void> {
     //    - storefront público (tienda.vidroop.com/academia/{slug}), sin login,
     //      es la vista del comprador/alumno (otro dominio, otra app)
     const storefrontBase = `https://tienda.vidroop.com/academia/${academia.slug}`;
-    const targets: { path: string; name: string; url: string }[] = [
+    const targets: Target[] = [
       ...STATIC_ROUTES.map((r) => ({
         path: r.path,
         name: r.name,
@@ -153,6 +156,12 @@ async function main(): Promise<void> {
       })),
       { path: "/tienda", name: "storefront-home", url: storefrontBase },
     ];
+
+    // 7b. Auto-descubrir entidades dinámicas (cursos/mapas/productos) y expandir
+    //     sus sub-páginas. Sin esto el crawler nunca ve `/curso/{id}/...` etc.
+    const dynamicTargets = await discoverDynamicTargets(page, academia.base_url);
+    targets.push(...dynamicTargets);
+    console.log(`[crawler] ${dynamicTargets.length} sub-páginas dinámicas descubiertas`);
 
     for (const route of targets) {
       // Cancelación cooperativa: si el panel marcó el crawl como cancelled, abortar.
@@ -273,6 +282,127 @@ async function extractVueRouter(page: Page): Promise<RouteInfo[]> {
     type RouteInfo = { path: string; name: string; isDynamic: boolean };
     return collect(routes);
   });
+}
+
+/**
+ * Descubre los UUIDs de las entidades dinámicas visitando los listados
+ * `/formaciones` (cursos + mapas) y `/productos`, y los expande en targets
+ * concretos por cada sub-página conocida (CURSO_SUBJECTS, etc.).
+ *
+ * Estrategia de extracción (dos fuentes, se unen y dedupean):
+ *   1) Path-scan del HTML renderizado: busca `/curso/{uuid}`, `/mapa/{uuid}`,
+ *      `/producto/{uuid}` en los href de las cards. El "kind" sale del path,
+ *      así que no hay falsos positivos. Es la fuente principal.
+ *   2) Sniff de las respuestas JSON de api.vidroop.com durante la carga del
+ *      listado (fallback por si las cards navegan por router sin <a href>).
+ *      Atribución del kind: por campo `tipo`/`type`/`actor` si existe; si no,
+ *      se asume el kind por defecto del listado.
+ */
+async function discoverDynamicTargets(page: Page, baseUrl: string): Promise<Target[]> {
+  const cursos = new Set<string>();
+  const mapas = new Set<string>();
+  const productos = new Set<string>();
+
+  // --- Listado de formaciones (cursos + mapas) ---
+  const formaciones = await discoverIdsOnListing(
+    page,
+    `${baseUrl}/formaciones`,
+    { curso: cursos, mapa: mapas },
+    ["formacion", "curso", "mapa", "proyecto"],
+  );
+  // Fallback API: sólo si el path-scan no encontró NADA en el HTML. Se asume
+  // `curso` (kind más común). Es una heurística — se loguea para no silenciarla.
+  if (cursos.size === 0 && mapas.size === 0 && formaciones.apiOnly.size > 0) {
+    console.log(
+      `[crawler] ⚠ formaciones: path-scan vacío, usando ${formaciones.apiOnly.size} id(s) de la API como cursos (heurística)`,
+    );
+    for (const id of formaciones.apiOnly) cursos.add(id);
+  }
+
+  // --- Listado de productos ---
+  const prods = await discoverIdsOnListing(
+    page,
+    `${baseUrl}/productos`,
+    { producto: productos },
+    ["producto"],
+  );
+  if (productos.size === 0 && prods.apiOnly.size > 0) {
+    console.log(
+      `[crawler] ⚠ productos: path-scan vacío, usando ${prods.apiOnly.size} id(s) de la API (heurística)`,
+    );
+    for (const id of prods.apiOnly) productos.add(id);
+  }
+
+  console.log(
+    `[crawler] descubierto: ${cursos.size} curso(s), ${mapas.size} mapa(s), ${productos.size} producto(s)`,
+  );
+
+  const targets: Target[] = [];
+  const expand = (kind: string, ids: Set<string>, subjects: string[]) => {
+    for (const id of ids) {
+      for (const subject of subjects) {
+        const path = `/${kind}/${id}/${subject}`;
+        targets.push({ path, name: `${kind}:${subject}`, url: `${baseUrl}${path}` });
+      }
+    }
+  };
+  expand("curso", cursos, CURSO_SUBJECTS);
+  expand("mapa", mapas, MAPA_SUBJECTS);
+  expand("producto", productos, PRODUCTO_SUBJECTS);
+  return targets;
+}
+
+/**
+ * Navega a un listado y devuelve los UUIDs encontrados. `kinds` mapea cada
+ * keyword de path (`curso`/`mapa`/`producto`) al Set donde acumular los ids
+ * hallados por path-scan. Devuelve además `apiOnly`: ids que sólo aparecieron
+ * en las respuestas JSON de la API y no en el HTML (fallback sin atribución).
+ */
+async function discoverIdsOnListing(
+  page: Page,
+  url: string,
+  kinds: Record<string, Set<string>>,
+  apiUrlKeywords: string[],
+): Promise<{ apiOnly: Set<string> }> {
+  const apiUuids = new Set<string>();
+  const onResponse = (resp: import("playwright").Response) => {
+    const u = resp.url().toLowerCase();
+    // Sólo respuestas del endpoint del listado (acota el ruido de la API).
+    if (!u.includes("api.vidroop.com")) return;
+    if (!apiUrlKeywords.some((k) => u.includes(k))) return;
+    resp
+      .text()
+      .then((body) => {
+        const re = new RegExp(UUID_RE, "gi");
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(body))) apiUuids.add(m[0].toLowerCase());
+      })
+      .catch(() => {});
+  };
+  page.on("response", onResponse);
+  try {
+    await page.goto(url, { waitUntil: "networkidle", timeout: PAGE_TIMEOUT_MS });
+    await page.waitForTimeout(POST_NAV_WAIT_MS);
+  } finally {
+    page.off("response", onResponse);
+  }
+
+  const html = await page.content();
+  const pathScanned = new Set<string>();
+  for (const [kind, sink] of Object.entries(kinds)) {
+    const re = new RegExp(`/${kind}/(${UUID_RE})`, "gi");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html))) {
+      const id = m[1].toLowerCase();
+      sink.add(id);
+      pathScanned.add(id);
+    }
+  }
+
+  // ids que la API mostró pero que el path-scan no atribuyó a ningún kind.
+  const apiOnly = new Set<string>();
+  for (const id of apiUuids) if (!pathScanned.has(id)) apiOnly.add(id);
+  return { apiOnly };
 }
 
 async function capturePage(
