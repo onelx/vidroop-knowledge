@@ -1,7 +1,7 @@
 # HANDOFF — Vidroop Knowledge Platform
 
 > Documento para abrir y continuar el proyecto en una sesión nueva.
-> Última sesión: **2026-05-30**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA + Normalizador + `/admin` protegido con Basic Auth + detección de cambios en el crawler + crawl manual por botón (sin cron), todo deployado.**
+> Última sesión: **2026-05-30**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA + Normalizador + `/admin` protegido con Basic Auth + detección de cambios en el crawler + crawl manual por botón (sin cron) + botón Detener para cancelar un crawl en curso, todo deployado.**
 
 ---
 
@@ -72,6 +72,7 @@ Datos clave de Vidroop extraídos en la auditoría:
 | Workflow GH Actions | ✅ | repository_dispatch (botón/API) + manual — SIN cron (se saca el cron diario) |
 | Detección de cambios | ✅ | crawler recorre todo pero solo sube artefactos si el contenido cambió (hash sha256); filas sin cambios reusan artefactos previos. Validado: crawl #1 = 23 changed, crawl #2 = 0 changed / 23 unchanged |
 | Crawl manual (botón) | ✅ | `POST /api/admin/crawl` (Basic Auth) + botón "Crawlear ahora" en /admin + columna de cambios |
+| Detener crawl (botón) | ✅ | `POST /api/admin/crawl/stop`: marca `cancelled` (fuente de verdad) + cancela la corrida de GH Actions. Crawler aborta cooperativamente entre páginas. Estado `cancelled` en el enum + `crawls.gh_run_id`. Validado en prod |
 | Deploy Vercel | ✅ | producción, deployment protection OFF (API pública); `/admin` + `/api/admin` con Basic Auth (proxy.ts) |
 | Repo GitHub | ✅ | público |
 | **Test e2e** | ✅ | **23/24 páginas crawleadas, artefactos en Storage, API sirve todo** |
