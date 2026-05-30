@@ -18,6 +18,7 @@
  *   7. Marca crawl como completed (o failed/partial)
  */
 
+import crypto from "node:crypto";
 import { chromium, type Browser, type Page } from "playwright";
 import { supabaseAdmin } from "./supabase.js";
 import { decryptCredential } from "./crypto.js";
@@ -44,6 +45,17 @@ function slugifyPath(path: string): string {
     .toLowerCase() || "root";
 }
 
+/**
+ * Hash del contenido visible normalizado de una página. Es la base de la
+ * detección de cambios: si el hash coincide con el de la última captura de la
+ * misma ruta, la página no cambió y no se re-suben artefactos.
+ * Se normaliza el whitespace para evitar diffs espurios por re-render de Vue.
+ */
+function hashContent(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
+}
+
 async function main(): Promise<void> {
   const supa = supabaseAdmin();
   console.log(`[crawler] start crawl_id=${CRAWL_ID} academia_id=${ACADEMIA_ID}`);
@@ -54,6 +66,8 @@ async function main(): Promise<void> {
   const startedAt = Date.now();
   let pagesSuccess = 0;
   let pagesFailed = 0;
+  let pagesChanged = 0;
+  let pagesUnchanged = 0;
 
   let browser: Browser | null = null;
   try {
@@ -119,9 +133,11 @@ async function main(): Promise<void> {
     // 7. Recorrer rutas estáticas (las del seed; más adelante mergear con dynamicRoutes)
     for (const route of STATIC_ROUTES) {
       try {
-        await capturePage(supa, page, academia.base_url, route);
+        const { changed } = await capturePage(supa, page, academia.base_url, ACADEMIA_ID, route);
         pagesSuccess++;
-        console.log(`[crawler] ✓ ${route.path}`);
+        if (changed) pagesChanged++;
+        else pagesUnchanged++;
+        console.log(`[crawler] ${changed ? "✚ CAMBIÓ" : "= igual "} ${route.path}`);
       } catch (e) {
         pagesFailed++;
         const msg = e instanceof Error ? e.message : String(e);
@@ -150,10 +166,14 @@ async function main(): Promise<void> {
         pages_total: STATIC_ROUTES.length,
         pages_success: pagesSuccess,
         pages_failed: pagesFailed,
+        pages_changed: pagesChanged,
+        pages_unchanged: pagesUnchanged,
       })
       .eq("id", CRAWL_ID);
 
-    console.log(`[crawler] done status=${status} success=${pagesSuccess} failed=${pagesFailed}`);
+    console.log(
+      `[crawler] done status=${status} success=${pagesSuccess} failed=${pagesFailed} changed=${pagesChanged} unchanged=${pagesUnchanged}`,
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? e.stack : undefined;
@@ -223,8 +243,9 @@ async function capturePage(
   supa: ReturnType<typeof supabaseAdmin>,
   page: Page,
   baseUrl: string,
+  academiaId: string,
   route: { path: string; name: string },
-): Promise<void> {
+): Promise<{ changed: boolean }> {
   const t0 = Date.now();
   const url = `${baseUrl}${route.path}`;
 
@@ -234,9 +255,7 @@ async function capturePage(
   const httpStatus = response?.status() ?? 0;
   const fullUrl = page.url();
   const title = await page.title();
-  const html = await page.content();
   const text = await page.evaluate(() => document.body?.innerText ?? "");
-  const screenshotBuf = await page.screenshot({ fullPage: true, type: "png" });
   // Snapshot custom del DOM: títulos, links, inputs, buttons — más útil que HTML crudo
   const domSnapshot = await page.evaluate(() => {
     const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((el) => ({
@@ -264,7 +283,49 @@ async function capturePage(
   const linksCount = await page.locator("a").count();
   const formsCount = await page.locator("form").count();
 
-  // Upload artefactos a Storage
+  // Hash del contenido visible para detectar cambios.
+  const contentHash = hashContent(text);
+
+  // Buscar la última captura CON HASH de esta ruta para esta academia.
+  const { data: prev } = await supa
+    .from("paginas")
+    .select("content_hash, html_path, screenshot_path, dom_tree_path, crawls!inner(academia_id)")
+    .eq("path", route.path)
+    .eq("crawls.academia_id", academiaId)
+    .not("content_hash", "is", null)
+    .order("captured_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const unchanged = !!prev && prev.content_hash === contentHash;
+
+  if (unchanged) {
+    // Sin cambios: fila liviana reusando los artefactos de la captura previa.
+    // NO se toma screenshot ni se sube nada a Storage (lo costoso del crawl).
+    await supa.from("paginas").insert({
+      crawl_id: CRAWL_ID,
+      path: route.path,
+      full_url: fullUrl,
+      route_name: route.name,
+      title,
+      http_status: httpStatus,
+      html_path: prev!.html_path,
+      screenshot_path: prev!.screenshot_path,
+      dom_tree_path: prev!.dom_tree_path,
+      text_content: text.slice(0, 50000),
+      content_hash: contentHash,
+      changed: false,
+      duration_ms: Date.now() - t0,
+      links_count: linksCount,
+      forms_count: formsCount,
+    });
+    return { changed: false };
+  }
+
+  // Cambió (o es la primera vez): capturar HTML + screenshot y subir artefactos.
+  const html = await page.content();
+  const screenshotBuf = await page.screenshot({ fullPage: true, type: "png" });
+
   const slug = slugifyPath(route.path);
   const htmlPath = `${CRAWL_ID}/${slug}.html`;
   const pngPath = `${CRAWL_ID}/${slug}.png`;
@@ -294,10 +355,14 @@ async function capturePage(
     screenshot_path: pngPath,
     dom_tree_path: domPath,
     text_content: text.slice(0, 50000), // cap
+    content_hash: contentHash,
+    changed: true,
     duration_ms: Date.now() - t0,
     links_count: linksCount,
     forms_count: formsCount,
   });
+
+  return { changed: true };
 }
 
 main().catch((e) => {

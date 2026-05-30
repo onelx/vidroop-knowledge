@@ -1,10 +1,7 @@
 name: Crawl Vidroop
 
 on:
-  # Cron diario a las 03:00 ART (06:00 UTC)
-  schedule:
-    - cron: "0 6 * * *"
-  # Disparado desde la API REST vía repository_dispatch
+  # Disparado desde la API REST / botón del panel admin vía repository_dispatch
   repository_dispatch:
     types: [crawl_academia]
   # Manual desde la UI de GitHub Actions
@@ -57,47 +54,13 @@ jobs:
           if [ "$EVENT_NAME" = "repository_dispatch" ]; then
             echo "academia_id=$DISPATCH_ACADEMIA" >> $GITHUB_OUTPUT
             echo "crawl_id=$DISPATCH_CRAWL" >> $GITHUB_OUTPUT
-          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          else
             echo "academia_id=$MANUAL_ACADEMIA" >> $GITHUB_OUTPUT
             echo "crawl_id=$MANUAL_CRAWL" >> $GITHUB_OUTPUT
-          else
-            # cron: no hay inputs, se procesará en un paso aparte
-            echo "academia_id=" >> $GITHUB_OUTPUT
-            echo "crawl_id=" >> $GITHUB_OUTPUT
           fi
 
-      # Si es cron, iterar todas las academias activas
-      - name: Crawl batch (cron)
-        if: github.event_name == 'schedule'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
-        working-directory: crawler
-        run: |
-          # Lista todas las academias activas y corre el crawler para cada una
-          node --input-type=module -e "
-            import { createClient } from '@supabase/supabase-js';
-            const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth:{ persistSession:false }});
-            const { data, error } = await supa.from('academias').select('id').eq('active', true);
-            if (error) { console.error(error); process.exit(1); }
-            console.log(JSON.stringify(data.map(a => a.id)));
-          " > academias.json
-          for ACADEMIA in $(cat academias.json | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).join('\n'))"); do
-            CRAWL_ID=$(node --input-type=module -e "
-              import { createClient } from '@supabase/supabase-js';
-              const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth:{ persistSession:false }});
-              const { data, error } = await supa.from('crawls').insert({ academia_id: '$ACADEMIA', status:'pending', trigger:'cron', triggered_by:'gh-actions-cron' }).select('id').single();
-              if (error) { console.error(error); process.exit(1); }
-              console.log(data.id);
-            ")
-            echo "Crawling academia=$ACADEMIA crawl=$CRAWL_ID"
-            ACADEMIA_ID="$ACADEMIA" CRAWL_ID="$CRAWL_ID" node dist/index.js || echo "academia $ACADEMIA falló, sigo"
-          done
-
-      # Si es dispatch (api o manual): un solo crawl
-      - name: Crawl único (dispatch)
-        if: github.event_name != 'schedule'
+      # Un solo crawl, disparado por API/botón (dispatch) o manual (workflow_dispatch)
+      - name: Crawl único
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

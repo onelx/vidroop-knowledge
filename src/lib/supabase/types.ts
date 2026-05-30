@@ -141,9 +141,11 @@ export type Database = {
           error_stack: string | null;
           id: string;
           metadata: Json | null;
+          pages_changed: number;
           pages_failed: number;
           pages_success: number;
           pages_total: number;
+          pages_unchanged: number;
           started_at: string;
           status: Database["public"]["Enums"]["crawl_status"];
           trigger: string;
@@ -157,9 +159,11 @@ export type Database = {
           error_stack?: string | null;
           id?: string;
           metadata?: Json | null;
+          pages_changed?: number;
           pages_failed?: number;
           pages_success?: number;
           pages_total?: number;
+          pages_unchanged?: number;
           started_at?: string;
           status?: Database["public"]["Enums"]["crawl_status"];
           trigger: string;
@@ -173,9 +177,11 @@ export type Database = {
           error_stack?: string | null;
           id?: string;
           metadata?: Json | null;
+          pages_changed?: number;
           pages_failed?: number;
           pages_success?: number;
           pages_total?: number;
+          pages_unchanged?: number;
           started_at?: string;
           status?: Database["public"]["Enums"]["crawl_status"];
           trigger?: string;
@@ -235,6 +241,8 @@ export type Database = {
       paginas: {
         Row: {
           captured_at: string;
+          changed: boolean;
+          content_hash: string | null;
           crawl_id: string;
           dom_tree_path: string | null;
           duration_ms: number | null;
@@ -253,6 +261,8 @@ export type Database = {
         };
         Insert: {
           captured_at?: string;
+          changed?: boolean;
+          content_hash?: string | null;
           crawl_id: string;
           dom_tree_path?: string | null;
           duration_ms?: number | null;
@@ -271,6 +281,8 @@ export type Database = {
         };
         Update: {
           captured_at?: string;
+          changed?: boolean;
+          content_hash?: string | null;
           crawl_id?: string;
           dom_tree_path?: string | null;
           duration_ms?: number | null;

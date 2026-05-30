@@ -1,13 +1,14 @@
 /**
  * Panel admin server-rendered. Server Component que lista academias y crawls recientes
- * directamente con el cliente service_role. Sin auth de usuario por ahora.
+ * directamente con el cliente service_role.
  *
- * NOTA DE SEGURIDAD: en el MVP este panel está expuesto. Antes de ir a producción
- * con datos reales hay que agregar Supabase Auth + RLS policies (siguiente etapa).
+ * Acceso protegido por HTTP Basic Auth en el proxy (src/proxy.ts).
+ * El crawl se dispara a mano con el botón "Crawlear ahora" (ya no hay cron).
  */
 
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import CrawlButton from "@/components/CrawlButton";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export default async function AdminPage() {
       .order("created_at", { ascending: false }),
     supa
       .from("crawls")
-      .select("id, academia_id, status, trigger, started_at, ended_at, pages_success, pages_failed")
+      .select("id, academia_id, status, trigger, started_at, ended_at, pages_success, pages_failed, pages_changed, pages_unchanged")
       .order("started_at", { ascending: false })
       .limit(20),
   ]);
@@ -58,6 +59,7 @@ export default async function AdminPage() {
                     <th className="text-left px-4 py-2 font-medium">URL</th>
                     <th className="text-left px-4 py-2 font-medium">Activa</th>
                     <th className="text-left px-4 py-2 font-medium">Creada</th>
+                    <th className="text-left px-4 py-2 font-medium">Acción</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -75,6 +77,13 @@ export default async function AdminPage() {
                       </td>
                       <td className="px-4 py-2 text-zinc-500 text-xs">
                         {new Date(a.created_at).toLocaleString("es-AR")}
+                      </td>
+                      <td className="px-4 py-2">
+                        {a.active ? (
+                          <CrawlButton academiaId={a.id} />
+                        ) : (
+                          <span className="text-zinc-600 text-xs">inactiva</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -97,6 +106,7 @@ export default async function AdminPage() {
                     <th className="text-left px-4 py-2 font-medium">Status</th>
                     <th className="text-left px-4 py-2 font-medium">Trigger</th>
                     <th className="text-left px-4 py-2 font-medium">Páginas (OK/Falló)</th>
+                    <th className="text-left px-4 py-2 font-medium">Cambios</th>
                     <th className="text-left px-4 py-2 font-medium">Inicio</th>
                   </tr>
                 </thead>
@@ -114,6 +124,11 @@ export default async function AdminPage() {
                         <span className="text-emerald-400">{c.pages_success}</span>
                         {" / "}
                         <span className="text-rose-400">{c.pages_failed}</span>
+                      </td>
+                      <td className="px-4 py-2 text-xs">
+                        <span className="text-amber-400" title="cambiaron">✚ {c.pages_changed}</span>
+                        {" / "}
+                        <span className="text-zinc-500" title="sin cambios">= {c.pages_unchanged}</span>
                       </td>
                       <td className="px-4 py-2 text-zinc-500 text-xs">
                         {new Date(c.started_at).toLocaleString("es-AR")}
