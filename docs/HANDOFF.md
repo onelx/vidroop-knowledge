@@ -1,7 +1,7 @@
 # HANDOFF — Vidroop Knowledge Platform
 
 > Documento para abrir y continuar el proyecto en una sesión nueva.
-> Última sesión: **2026-05-28**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA, todo deployado.**
+> Última sesión: **2026-05-30**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA + Normalizador + `/admin` protegido con Basic Auth, todo deployado.**
 
 ---
 
@@ -70,7 +70,7 @@ Datos clave de Vidroop extraídos en la auditoría:
 | Auth API externa | ✅ | API keys sha256 + scopes (`src/lib/auth/api-key.ts`) |
 | Crawler Playwright | ✅ | `crawler/`, corre en GitHub Actions |
 | Workflow GH Actions | ✅ | cron diario + repository_dispatch + manual |
-| Deploy Vercel | ✅ | producción, deployment protection OFF (API pública) |
+| Deploy Vercel | ✅ | producción, deployment protection OFF (API pública); `/admin` + `/api/admin` con Basic Auth (proxy.ts) |
 | Repo GitHub | ✅ | público |
 | **Test e2e** | ✅ | **23/24 páginas crawleadas, artefactos en Storage, API sirve todo** |
 | **MCP server (Etapa A)** | ✅ | **`POST /api/mcp`, Streamable HTTP stateless, 6 tools + resources, auth API key. En prod** |
@@ -147,7 +147,7 @@ vidroop-knowledge/
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx                    (home pública)
-│   │   ├── admin/page.tsx              (panel admin — SIN auth todavía ⚠️)
+│   │   ├── admin/page.tsx              (panel admin — protegido por Basic Auth vía proxy.ts)
 │   │   └── api/
 │   │       ├── mcp/route.ts             (MCP server: POST=JSON-RPC, GET=405, OPTIONS=CORS)
 │   │       └── v1/
@@ -282,7 +282,7 @@ console.log(plain); // se muestra UNA vez
 
 ## 11. Deuda técnica / cosas a saber ⚠️
 
-1. **`/admin` está SIN autenticación** — expuesta públicamente. Antes de meter datos reales sensibles, agregar Supabase Auth + RLS policies. Las tablas tienen RLS habilitado pero sin policies → solo `service_role` accede (la API usa service_role, por eso funciona).
+1. **`/admin` protegido con HTTP Basic Auth** (2026-05-30, `src/proxy.ts`) — gate fail-closed sobre `/admin/*` y `/api/admin/*` con `ADMIN_USER`/`ADMIN_PASSWORD` (en Vercel prod + `.env.local`). Sin `ADMIN_PASSWORD` → 503 (nunca abre). Esto cierra el agujero por el que `/api/admin/agente` ejecutaba Claude con la API key del dueño sin auth. **Pendiente a futuro**: para multi-usuario real, migrar a Supabase Auth + RLS policies (hoy las tablas tienen RLS habilitado pero sin policies → solo `service_role` accede; la API usa service_role, por eso funciona).
 2. **El crawler solo recorre rutas estáticas** (24). Las dinámicas (`/curso/:id`, `/producto/:id`) necesitan seed con UUIDs reales. En la auditoría manual eso se hizo creando data de prueba y borrándola.
 3. **No hay "explorer agent"** — el crawler determinista no descubre modales/forms detrás de clicks (ej. "Crear Producto" abre un modal que no se ve por URL). La auditoría manual sí los documentó.
 4. **`/actualizar-licencia` siempre falla** (timeout) porque redirige a `/gestion/pagos-vidroop/plan-suscrito`. Se puede quitar del seed o aumentar timeout / manejar redirects.
