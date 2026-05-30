@@ -1,7 +1,7 @@
 # HANDOFF — Vidroop Knowledge Platform
 
 > Documento para abrir y continuar el proyecto en una sesión nueva.
-> Última sesión: **2026-05-30**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA + Normalizador + `/admin` protegido con Basic Auth, todo deployado.**
+> Última sesión: **2026-05-30**. Estado: **MVP en prod + MCP server (Etapa A) + UI pública (menú, explicación de Vidroop) + Copiloto IA + Normalizador + `/admin` protegido con Basic Auth + detección de cambios en el crawler + crawl manual por botón (sin cron), todo deployado.**
 
 ---
 
@@ -69,7 +69,9 @@ Datos clave de Vidroop extraídos en la auditoría:
 | Cifrado credenciales | ✅ | AES-256-GCM (`src/lib/crypto/`) |
 | Auth API externa | ✅ | API keys sha256 + scopes (`src/lib/auth/api-key.ts`) |
 | Crawler Playwright | ✅ | `crawler/`, corre en GitHub Actions |
-| Workflow GH Actions | ✅ | cron diario + repository_dispatch + manual |
+| Workflow GH Actions | ✅ | repository_dispatch (botón/API) + manual — SIN cron (se saca el cron diario) |
+| Detección de cambios | ✅ | crawler recorre todo pero solo sube artefactos si el contenido cambió (hash sha256); filas sin cambios reusan artefactos previos. Validado: crawl #1 = 23 changed, crawl #2 = 0 changed / 23 unchanged |
+| Crawl manual (botón) | ✅ | `POST /api/admin/crawl` (Basic Auth) + botón "Crawlear ahora" en /admin + columna de cambios |
 | Deploy Vercel | ✅ | producción, deployment protection OFF (API pública); `/admin` + `/api/admin` con Basic Auth (proxy.ts) |
 | Repo GitHub | ✅ | público |
 | **Test e2e** | ✅ | **23/24 páginas crawleadas, artefactos en Storage, API sirve todo** |
@@ -104,7 +106,7 @@ Datos clave de Vidroop extraídos en la auditoría:
 - **Repo**: https://github.com/onelx/vidroop-knowledge (público)
 - **Cuenta**: `onelx`
 - **Secrets seteados** (Actions): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CREDENTIAL_ENCRYPTION_KEY
-- **Workflow**: `.github/workflows/crawl.yml` (cron `0 6 * * *` = 03:00 ART)
+- **Workflow**: `.github/workflows/crawl.yml` (sin cron; se dispara por repository_dispatch desde el botón/API o manual desde la UI de Actions)
 
 ### Local
 - **Path**: `/Users/osvaldo/Projects/app/Analizar Vidroop/vidroop-knowledge/`
@@ -286,7 +288,7 @@ console.log(plain); // se muestra UNA vez
 2. **El crawler solo recorre rutas estáticas** (24). Las dinámicas (`/curso/:id`, `/producto/:id`) necesitan seed con UUIDs reales. En la auditoría manual eso se hizo creando data de prueba y borrándola.
 3. **No hay "explorer agent"** — el crawler determinista no descubre modales/forms detrás de clicks (ej. "Crear Producto" abre un modal que no se ve por URL). La auditoría manual sí los documentó.
 4. **`/actualizar-licencia` siempre falla** (timeout) porque redirige a `/gestion/pagos-vidroop/plan-suscrito`. Se puede quitar del seed o aumentar timeout / manejar redirects.
-5. **El cron procesa TODAS las academias activas** en serie (loop bash en el workflow). Con muchas academias esto puede pasar el timeout de 30min del job. Habría que paralelizar o usar matrix.
+5. ~~El cron procesa TODAS las academias activas en serie~~ **RESUELTO (2026-05-30): se sacó el cron.** El crawl ahora es manual (botón en /admin → `repository_dispatch` → 1 crawl por academia). Si en el futuro se quiere re-crawleo programado, volver a agregar `schedule:` en `crawl.yml` (idealmente con matrix por academia para no pasar el timeout de 30min).
 6. **3 secrets duplicados** entre Vercel y GitHub (service_role, enc key). Si rotás uno, rotar en ambos lados.
 7. **Costo Supabase**: el proyecto suma **$10/mes** a la org (es Pro).
 8. **Explicación/copiloto salen de notes BUNDLEADAS, no de la DB.** `notes/00-10` se empaquetan en `src/content/vidroop/data.ts` vía `scripts/gen-vidroop-content.mjs` (re-correr si cambian las notes). Se eligió así porque **no se pudo aplicar DDL**: el MCP de Supabase estuvo caído (`net::ERR_FAILED`, sin egress) y no había connection string ni DB password a mano. La migración `00002_documentos.sql` + `scripts/seed-documentos.mjs` quedaron listas para cuando se destrabe (MCP o credencial) — las necesita el **normalizer (Etapa B)** para escribir docs generados. PostgREST con service_role SÍ funciona desde afuera (lectura/escritura de datos), solo el DDL está bloqueado.
