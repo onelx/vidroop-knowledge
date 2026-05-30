@@ -140,8 +140,21 @@ async function main(): Promise<void> {
       );
     }
 
-    // 7. Recorrer rutas estáticas (las del seed; más adelante mergear con dynamicRoutes)
-    for (const route of STATIC_ROUTES) {
+    // 7. Armar la lista de destinos a recorrer:
+    //    - rutas estáticas del back-office (academia.vidroop.com), con login
+    //    - storefront público (tienda.vidroop.com/academia/{slug}), sin login,
+    //      es la vista del comprador/alumno (otro dominio, otra app)
+    const storefrontBase = `https://tienda.vidroop.com/academia/${academia.slug}`;
+    const targets: { path: string; name: string; url: string }[] = [
+      ...STATIC_ROUTES.map((r) => ({
+        path: r.path,
+        name: r.name,
+        url: `${academia.base_url}${r.path}`,
+      })),
+      { path: "/tienda", name: "storefront-home", url: storefrontBase },
+    ];
+
+    for (const route of targets) {
       // Cancelación cooperativa: si el panel marcó el crawl como cancelled, abortar.
       const { data: chk } = await supa.from("crawls").select("status").eq("id", CRAWL_ID).maybeSingle();
       if (chk?.status === "cancelled") {
@@ -150,7 +163,7 @@ async function main(): Promise<void> {
         break;
       }
       try {
-        const { changed } = await capturePage(supa, page, academia.base_url, ACADEMIA_ID, route);
+        const { changed } = await capturePage(supa, page, ACADEMIA_ID, route);
         pagesSuccess++;
         if (changed) pagesChanged++;
         else pagesUnchanged++;
@@ -162,7 +175,7 @@ async function main(): Promise<void> {
         await supa.from("paginas").insert({
           crawl_id: CRAWL_ID,
           path: route.path,
-          full_url: `${academia.base_url}${route.path}`,
+          full_url: route.url,
           route_name: route.name,
           http_status: 0,
           error_message: msg,
@@ -177,7 +190,7 @@ async function main(): Promise<void> {
       ? "cancelled"
       : pagesFailed === 0
         ? "completed"
-        : pagesFailed < STATIC_ROUTES.length
+        : pagesFailed < targets.length
           ? "partial"
           : "failed";
     await supa
@@ -186,7 +199,7 @@ async function main(): Promise<void> {
         status,
         ended_at: new Date().toISOString(),
         duration_ms: endedAt - startedAt,
-        pages_total: STATIC_ROUTES.length,
+        pages_total: targets.length,
         pages_success: pagesSuccess,
         pages_failed: pagesFailed,
         pages_changed: pagesChanged,
@@ -265,12 +278,11 @@ async function extractVueRouter(page: Page): Promise<RouteInfo[]> {
 async function capturePage(
   supa: ReturnType<typeof supabaseAdmin>,
   page: Page,
-  baseUrl: string,
   academiaId: string,
-  route: { path: string; name: string },
+  route: { path: string; name: string; url: string },
 ): Promise<{ changed: boolean }> {
   const t0 = Date.now();
-  const url = `${baseUrl}${route.path}`;
+  const url = route.url;
 
   const response = await page.goto(url, { waitUntil: "networkidle", timeout: PAGE_TIMEOUT_MS });
   await page.waitForTimeout(POST_NAV_WAIT_MS);
