@@ -27,6 +27,14 @@ export default async function AdminPage() {
       .limit(20),
   ]);
 
+  // Crawl en curso (pending/running) por academia, para mostrar el botón Detener.
+  const activeByAcademia = new Map<string, string>();
+  for (const c of crawls ?? []) {
+    if ((c.status === "pending" || c.status === "running") && !activeByAcademia.has(c.academia_id)) {
+      activeByAcademia.set(c.academia_id, c.id);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
       <main className="mx-auto max-w-5xl px-6 py-12">
@@ -80,7 +88,10 @@ export default async function AdminPage() {
                       </td>
                       <td className="px-4 py-2">
                         {a.active ? (
-                          <CrawlButton academiaId={a.id} />
+                          <CrawlButton
+                            academiaId={a.id}
+                            activeCrawlId={activeByAcademia.get(a.id) ?? null}
+                          />
                         ) : (
                           <span className="text-zinc-600 text-xs">inactiva</span>
                         )}
@@ -152,6 +163,7 @@ function StatusBadge({ status }: { status: string }) {
     pending: "text-yellow-400 bg-yellow-950/40",
     partial: "text-amber-400 bg-amber-950/40",
     failed: "text-rose-400 bg-rose-950/40",
+    cancelled: "text-zinc-300 bg-zinc-800",
   }[status] ?? "text-zinc-400 bg-zinc-900";
   return (
     <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${color}`}>

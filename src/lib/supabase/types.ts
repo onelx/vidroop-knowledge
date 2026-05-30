@@ -139,6 +139,7 @@ export type Database = {
           ended_at: string | null;
           error_message: string | null;
           error_stack: string | null;
+          gh_run_id: number | null;
           id: string;
           metadata: Json | null;
           pages_changed: number;
@@ -157,6 +158,7 @@ export type Database = {
           ended_at?: string | null;
           error_message?: string | null;
           error_stack?: string | null;
+          gh_run_id?: number | null;
           id?: string;
           metadata?: Json | null;
           pages_changed?: number;
@@ -175,6 +177,7 @@ export type Database = {
           ended_at?: string | null;
           error_message?: string | null;
           error_stack?: string | null;
+          gh_run_id?: number | null;
           id?: string;
           metadata?: Json | null;
           pages_changed?: number;
@@ -450,7 +453,7 @@ export type Database = {
     Views: Record<string, never>;
     Functions: Record<string, never>;
     Enums: {
-      crawl_status: "pending" | "running" | "completed" | "failed" | "partial";
+      crawl_status: "pending" | "running" | "completed" | "failed" | "partial" | "cancelled";
     };
     CompositeTypes: Record<string, never>;
   };

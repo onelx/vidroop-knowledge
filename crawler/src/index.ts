@@ -60,14 +60,24 @@ async function main(): Promise<void> {
   const supa = supabaseAdmin();
   console.log(`[crawler] start crawl_id=${CRAWL_ID} academia_id=${ACADEMIA_ID}`);
 
-  // Marcar el crawl como running
-  await supa.from("crawls").update({ status: "running" }).eq("id", CRAWL_ID);
+  const ghRunId = process.env.GITHUB_RUN_ID ? Number(process.env.GITHUB_RUN_ID) : null;
+
+  // Si el crawl fue cancelado mientras estaba pending, no arrancar.
+  const { data: cur } = await supa.from("crawls").select("status").eq("id", CRAWL_ID).maybeSingle();
+  if (cur?.status === "cancelled") {
+    console.log("[crawler] crawl ya cancelado antes de arrancar, salgo");
+    return;
+  }
+
+  // Marcar el crawl como running + guardar el run_id de GitHub Actions (para poder cancelarlo).
+  await supa.from("crawls").update({ status: "running", gh_run_id: ghRunId }).eq("id", CRAWL_ID);
 
   const startedAt = Date.now();
   let pagesSuccess = 0;
   let pagesFailed = 0;
   let pagesChanged = 0;
   let pagesUnchanged = 0;
+  let cancelled = false;
 
   let browser: Browser | null = null;
   try {
@@ -132,6 +142,13 @@ async function main(): Promise<void> {
 
     // 7. Recorrer rutas estáticas (las del seed; más adelante mergear con dynamicRoutes)
     for (const route of STATIC_ROUTES) {
+      // Cancelación cooperativa: si el panel marcó el crawl como cancelled, abortar.
+      const { data: chk } = await supa.from("crawls").select("status").eq("id", CRAWL_ID).maybeSingle();
+      if (chk?.status === "cancelled") {
+        cancelled = true;
+        console.log("[crawler] ⏹ cancelado manualmente, abortando recorrido");
+        break;
+      }
       try {
         const { changed } = await capturePage(supa, page, academia.base_url, ACADEMIA_ID, route);
         pagesSuccess++;
@@ -154,9 +171,15 @@ async function main(): Promise<void> {
       }
     }
 
-    // 8. Marcar crawl completed
+    // 8. Marcar crawl completed (o cancelled si se detuvo a mano)
     const endedAt = Date.now();
-    const status = pagesFailed === 0 ? "completed" : pagesFailed < STATIC_ROUTES.length ? "partial" : "failed";
+    const status = cancelled
+      ? "cancelled"
+      : pagesFailed === 0
+        ? "completed"
+        : pagesFailed < STATIC_ROUTES.length
+          ? "partial"
+          : "failed";
     await supa
       .from("crawls")
       .update({

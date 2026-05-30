@@ -67,6 +67,7 @@ jobs:
           CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           ACADEMIA_ID: ${{ steps.inputs.outputs.academia_id }}
           CRAWL_ID: ${{ steps.inputs.outputs.crawl_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         working-directory: crawler
         run: |
           if [ -z "$CRAWL_ID" ] && [ -n "$ACADEMIA_ID" ]; then
