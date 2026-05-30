@@ -73,6 +73,7 @@ Datos clave de Vidroop extraídos en la auditoría:
 | Detección de cambios | ✅ | crawler recorre todo pero solo sube artefactos si el contenido cambió (hash sha256); filas sin cambios reusan artefactos previos. Validado: crawl #1 = 23 changed, crawl #2 = 0 changed / 23 unchanged |
 | Crawl manual (botón) | ✅ | `POST /api/admin/crawl` (Basic Auth) + botón "Crawlear ahora" en /admin + columna de cambios |
 | Detener crawl (botón) | ✅ | `POST /api/admin/crawl/stop`: marca `cancelled` (fuente de verdad) + cancela la corrida de GH Actions. Crawler aborta cooperativamente entre páginas. Estado `cancelled` en el enum + `crawls.gh_run_id`. Validado en prod |
+| Storefront público | ✅ | el crawler suma `tienda.vidroop.com/academia/{slug}` (vista del comprador/alumno, otro dominio, sin login) como destino. Se guarda con path `/tienda`. `capturePage` desacopla URL del path. pages_total = 25. Validado en prod |
 | Deploy Vercel | ✅ | producción, deployment protection OFF (API pública); `/admin` + `/api/admin` con Basic Auth (proxy.ts) |
 | Repo GitHub | ✅ | público |
 | **Test e2e** | ✅ | **23/24 páginas crawleadas, artefactos en Storage, API sirve todo** |
@@ -286,7 +287,7 @@ console.log(plain); // se muestra UNA vez
 ## 11. Deuda técnica / cosas a saber ⚠️
 
 1. **`/admin` protegido con HTTP Basic Auth** (2026-05-30, `src/proxy.ts`) — gate fail-closed sobre `/admin/*` y `/api/admin/*` con `ADMIN_USER`/`ADMIN_PASSWORD` (en Vercel prod + `.env.local`). Sin `ADMIN_PASSWORD` → 503 (nunca abre). Esto cierra el agujero por el que `/api/admin/agente` ejecutaba Claude con la API key del dueño sin auth. **Pendiente a futuro**: para multi-usuario real, migrar a Supabase Auth + RLS policies (hoy las tablas tienen RLS habilitado pero sin policies → solo `service_role` accede; la API usa service_role, por eso funciona).
-2. **El crawler solo recorre rutas estáticas** (24). Las dinámicas (`/curso/:id`, `/producto/:id`) necesitan seed con UUIDs reales. En la auditoría manual eso se hizo creando data de prueba y borrándola.
+2. **El crawler recorre las 24 rutas estáticas + el storefront público** (`/tienda` → tienda.vidroop.com/academia/{slug}). Las dinámicas (`/curso/:id`, `/producto/:id`, `/mapa/:id`) siguen SIN cubrir: necesitan UUIDs de entidades reales. Hoy la academia tiene 0 cursos/productos, así que no hay nada dinámico que crawlear hasta que se cree uno. Próximo paso natural: auto-descubrir cursos/productos desde /formaciones y /productos y entrar a sus sub-páginas (incl. alumnos). El detalle detrás de modales/forms (Crear X) necesita el explorer agent (Etapa F).
 3. **No hay "explorer agent"** — el crawler determinista no descubre modales/forms detrás de clicks (ej. "Crear Producto" abre un modal que no se ve por URL). La auditoría manual sí los documentó.
 4. **`/actualizar-licencia` siempre falla** (timeout) porque redirige a `/gestion/pagos-vidroop/plan-suscrito`. Se puede quitar del seed o aumentar timeout / manejar redirects.
 5. ~~El cron procesa TODAS las academias activas en serie~~ **RESUELTO (2026-05-30): se sacó el cron.** El crawl ahora es manual (botón en /admin → `repository_dispatch` → 1 crawl por academia). Si en el futuro se quiere re-crawleo programado, volver a agregar `schedule:` en `crawl.yml` (idealmente con matrix por academia para no pasar el timeout de 30min).
